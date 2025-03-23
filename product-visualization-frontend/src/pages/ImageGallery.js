@@ -114,6 +114,41 @@ const ImageGallery = ({ user }) => {
       day: 'numeric'
     });
   };
+
+  const getImageUrl = (imagePath, imageUrl) => {
+    // If we have a direct URL from the API, use it
+    if (imageUrl) {
+      const baseUrl = axios.defaults.baseURL?.replace('/api', '') || 'http://localhost:5000';
+      return `${baseUrl}${imageUrl}`;
+    }
+    
+    // Base API URL (remove the /api part for static files)
+    const baseUrl = axios.defaults.baseURL?.replace('/api', '') || 'http://localhost:5000';
+    
+    // For full paths
+    if (imagePath && imagePath.includes('/')) {
+      // Extract just the filename from the path
+      const filename = imagePath.split('/').pop();
+      
+      // Determine if it's from uploads or processed directory
+      if (imagePath.includes('/uploads/')) {
+        return `${baseUrl}/uploads/${filename}`;
+      } else if (imagePath.includes('/processed/')) {
+        return `${baseUrl}/processed/${filename}`;
+      }
+    }
+    
+    // If it's just a filename or undefined
+    return imagePath ? `${baseUrl}/processed/${imagePath}` : 'https://via.placeholder.com/400x400?text=No+Image';
+  };
+  
+  // Add image error handling function
+  const handleImageError = (e, imagePath) => {
+    console.error("Image failed to load:", imagePath);
+    e.target.src = 'https://via.placeholder.com/400x300?text=Image+Not+Found';
+  };
+  
+  
   
   if (loading) {
     return (
@@ -167,13 +202,14 @@ const ImageGallery = ({ user }) => {
                   <Card elevation={2} sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
                     {image.generated_images && image.generated_images.length > 0 ? (
                       <CardMedia
-                        component="img"
-                        height="200"
-                        image={`${axios.defaults.baseURL.replace('/api', '')}/processed/${image.generated_images[0].path.split('/').pop()}`}
-                        alt="Generated visualization"
-                        sx={{ objectFit: 'cover', cursor: 'pointer' }}
-                        onClick={() => handleImageClick(image)}
-                      />
+                      component="img"
+                      height="200"
+                      image={getImageUrl(image.generated_images[0].path, image.generated_images[0].url)}
+                      alt="Generated visualization"
+                      sx={{ objectFit: 'cover', cursor: 'pointer' }}
+                      onClick={() => handleImageClick(image)}
+                      onError={(e) => handleImageError(e, image.generated_images[0].path)}
+                    />
                     ) : (
                       <Box 
                         sx={{ 
@@ -276,10 +312,11 @@ const ImageGallery = ({ user }) => {
           {selectedImage && selectedImage.generated_images.length > 0 && (
             <Box sx={{ textAlign: 'center' }}>
               <img 
-                src={`${axios.defaults.baseURL.replace('/api', '')}/processed/${selectedImage.generated_images[0].path.split('/').pop()}`}
-                alt="Generated visualization"
-                style={{ maxWidth: '100%', maxHeight: '70vh' }}
-              />
+  src={getImageUrl(selectedImage.generated_images[0].path, selectedImage.generated_images[0].url)}
+  alt="Generated visualization"
+  style={{ maxWidth: '100%', maxHeight: '70vh' }}
+  onError={(e) => handleImageError(e, selectedImage.generated_images[0].path)}
+/>
               
               <Typography variant="body2" sx={{ mt: 2 }}>
                 Scene: {selectedImage.generated_images[0].scene}

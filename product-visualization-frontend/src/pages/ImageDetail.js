@@ -43,6 +43,40 @@ const ImageDetail = ({ user }) => {
   // Action menu state
   const [actionMenuAnchor, setActionMenuAnchor] = useState(null);
   const actionMenuOpen = Boolean(actionMenuAnchor);
+
+  const getImageUrl = (imagePath, imageUrl) => {
+    // If we have a direct URL from the API, use it
+    if (imageUrl) {
+      const baseUrl = axios.defaults.baseURL?.replace('/api', '') || 'http://localhost:5000';
+      return `${baseUrl}${imageUrl}`;
+    }
+    
+    // Base API URL (remove the /api part for static files)
+    const baseUrl = axios.defaults.baseURL?.replace('/api', '') || 'http://localhost:5000';
+    
+    // For full paths
+    if (imagePath && imagePath.includes('/')) {
+      // Extract just the filename from the path
+      const filename = imagePath.split('/').pop();
+      
+      // Determine if it's from uploads or processed directory
+      if (imagePath.includes('/uploads/')) {
+        return `${baseUrl}/uploads/${filename}`;
+      } else if (imagePath.includes('/processed/')) {
+        return `${baseUrl}/processed/${filename}`;
+      }
+    }
+    
+    // If it's just a filename or undefined
+    return imagePath ? `${baseUrl}/processed/${imagePath}` : 'https://via.placeholder.com/400x400?text=No+Image';
+  };
+  
+  // Add a debug function to check image loading
+  const handleImageError = (e, imagePath) => {
+    console.error("Image failed to load:", imagePath);
+    e.target.src = 'https://via.placeholder.com/400x400?text=Image+Not+Found';
+  };
+  
   
   // Fetch image data
   useEffect(() => {
@@ -50,6 +84,7 @@ const ImageDetail = ({ user }) => {
       try {
         setLoading(true);
         const response = await axios.get(`/images/${imageId}`);
+        console.log("Image data:", response.data.image);
         setImageData(response.data.image);
         
         // Set the first generated image as selected by default
@@ -328,13 +363,14 @@ const ImageDetail = ({ user }) => {
             >
               {selectedImage ? (
                 <img 
-                  src={`${axios.defaults.baseURL.replace('/api', '')}/processed/${selectedImage.path.split('/').pop()}`}
+                  src={getImageUrl(selectedImage.path, selectedImage.url)}
                   alt="Product visualization"
                   style={{
                     maxWidth: '100%',
                     maxHeight: '100%',
                     objectFit: 'contain'
                   }}
+                  onError={(e) => handleImageError(e, selectedImage.path)}
                 />
               ) : (
                 <Typography variant="body1" color="text.secondary">
@@ -375,9 +411,10 @@ const ImageDetail = ({ user }) => {
                         <CardMedia
                           component="img"
                           height="100"
-                          image={`${axios.defaults.baseURL.replace('/api', '')}/processed/${image.path.split('/').pop()}`}
+                          image={getImageUrl(image.path, image.url)}
                           alt={`Visualization in ${formatSceneName(image.scene)}`}
                           sx={{ objectFit: 'cover' }}
+                          onError={(e) => handleImageError(e, image.path)}
                         />
                         <CardContent sx={{ p: 1 }}>
                           <Typography variant="caption" display="block" noWrap>
@@ -419,13 +456,14 @@ const ImageDetail = ({ user }) => {
                 }}
               >
                 <img 
-                  src={`${axios.defaults.baseURL.replace('/api', '')}/uploads/${imageData.original_path.split('/').pop()}`}
+                  src={getImageUrl(imageData.original_path, imageData.original_url)}
                   alt="Original product"
                   style={{
                     maxWidth: '100%',
                     maxHeight: '300px',
                     objectFit: 'contain'
                   }}
+                  onError={(e) => handleImageError(e, imageData.original_path)}
                 />
               </Box>
               
@@ -643,13 +681,14 @@ const ImageDetail = ({ user }) => {
           {selectedImage && (
             <Box sx={{ display: 'flex', justifyContent: 'center' }}>
               <img 
-                src={`${axios.defaults.baseURL.replace('/api', '')}/processed/${selectedImage.path.split('/').pop()}`}
+                src={getImageUrl(selectedImage.path, selectedImage.url)}
                 alt="Product visualization"
                 style={{
                   maxWidth: '100%',
                   maxHeight: '70vh',
                   objectFit: 'contain'
                 }}
+                onError={(e) => handleImageError(e, selectedImage.path)}
               />
             </Box>
           )}

@@ -10,6 +10,41 @@ import WallpaperIcon from '@mui/icons-material/Wallpaper';
 import AddIcon from '@mui/icons-material/Add';
 import ImageIcon from '@mui/icons-material/Image';
 
+
+const getImageUrl = (imagePath, imageUrl) => {
+  // If we have a direct URL from the API, use it
+  if (imageUrl) {
+    const baseUrl = axios.defaults.baseURL?.replace('/api', '') || 'http://localhost:5000';
+    return `${baseUrl}${imageUrl}`;
+  }
+  
+  // Base API URL (remove the /api part for static files)
+  const baseUrl = axios.defaults.baseURL?.replace('/api', '') || 'http://localhost:5000';
+  
+  // For full paths
+  if (imagePath && imagePath.includes('/')) {
+    // Extract just the filename from the path
+    const filename = imagePath.split('/').pop();
+    
+    // Determine if it's from uploads or processed directory
+    if (imagePath.includes('/uploads/')) {
+      return `${baseUrl}/uploads/${filename}`;
+    } else if (imagePath.includes('/processed/')) {
+      return `${baseUrl}/processed/${filename}`;
+    }
+  }
+  
+  // If it's just a filename or undefined
+  return imagePath ? `${baseUrl}/processed/${imagePath}` : 'https://via.placeholder.com/400x400?text=No+Image';
+};
+
+// Add image error handling function
+const handleImageError = (e, imagePath) => {
+  console.error("Image failed to load:", imagePath);
+  e.target.src = 'https://via.placeholder.com/400x300?text=Image+Not+Found';
+};
+
+
 const SceneSelection = ({ user }) => {
   const { imageId } = useParams();
   const navigate = useNavigate();
@@ -33,10 +68,12 @@ const SceneSelection = ({ user }) => {
         
         // Fetch image data
         const imageResponse = await axios.get(`/images/${imageId}`);
+        console.log("Received image data:", imageResponse.data.image); // Debug log
         setOriginalImage(imageResponse.data.image);
         
         setLoading(false);
       } catch (error) {
+        console.error('Error fetching data:', error);
         setError('Failed to load data. Please try again.');
         setLoading(false);
       }
@@ -44,6 +81,8 @@ const SceneSelection = ({ user }) => {
     
     fetchData();
   }, [imageId]);
+  
+  
   
   const handleSceneSelect = (sceneKey) => {
     if (sceneKey === 'custom') {
@@ -103,16 +142,29 @@ const SceneSelection = ({ user }) => {
     );
   }
   
-  // Sample scene images (in production, these would be actual previews)
-  const scenePreviewImages = {
-    living_room: 'https://via.placeholder.com/300x200?text=Living+Room',
-    kitchen: 'https://via.placeholder.com/300x200?text=Kitchen',
-    office: 'https://via.placeholder.com/300x200?text=Office',
-    outdoor: 'https://via.placeholder.com/300x200?text=Outdoor',
-    bedroom: 'https://via.placeholder.com/300x200?text=Bedroom',
-    bathroom: 'https://via.placeholder.com/300x200?text=Bathroom',
-    custom: 'https://via.placeholder.com/300x200?text=Custom+Scene'
-  };
+  // Map of scene keys to actual filenames
+const imageFileMap = {
+  living_room: 'living_room.jpeg',
+  kitchen: 'kitchen.jpeg',
+  office: 'office.jpeg',
+  outdoor: 'outdoor.jpeg',
+  bedroom: 'bedroom.jpeg',
+  bathroom: 'bathroom.jpeg',
+  custom: 'custom-scene.jpeg'
+};
+
+
+
+// Create the scene preview images object dynamically
+const scenePreviewImages = {};
+Object.keys(imageFileMap).forEach(key => {
+  try {
+    scenePreviewImages[key] = require(`../assets/${imageFileMap[key]}`);
+  } catch (error) {
+    // Fallback to placeholder if image can't be found
+    scenePreviewImages[key] = `https://via.placeholder.com/300x200?text=${key.replace('_', '+')}`;
+  }
+});
   
   return (
     <Container maxWidth="lg">
@@ -146,43 +198,55 @@ const SceneSelection = ({ user }) => {
               </Typography>
               
               {originalImage ? (
-                <Box 
-                  sx={{ 
-                    width: '100%',
-                    height: 250,
-                    display: 'flex',
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    backgroundColor: '#f5f5f5',
-                    borderRadius: 1,
-                    overflow: 'hidden'
-                  }}
-                >
-                  <img 
-                    src={`${axios.defaults.baseURL.replace('/api', '')}/uploads/${originalImage.processed_path.split('/').pop()}`} 
-                    alt="Original product" 
-                    style={{ 
-                      maxWidth: '100%', 
-                      maxHeight: '100%',
-                      objectFit: 'contain'
-                    }} 
-                  />
-                </Box>
-              ) : (
-                <Box 
-                  sx={{ 
-                    width: '100%',
-                    height: 250,
-                    display: 'flex',
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    backgroundColor: '#f5f5f5',
-                    borderRadius: 1
-                  }}
-                >
-                  <ImageIcon sx={{ fontSize: 72, color: '#9e9e9e' }} />
-                </Box>
-              )}
+  <Box 
+    sx={{ 
+      width: '100%',
+      height: 250,
+      display: 'flex',
+      justifyContent: 'center',
+      alignItems: 'center',
+      backgroundColor: '#f5f5f5',
+      borderRadius: 1,
+      overflow: 'hidden'
+    }}
+  >
+    <img 
+      src={getImageUrl(originalImage.processed_path, originalImage.processed_url)} 
+      alt="Original product" 
+      style={{ 
+        maxWidth: '100%', 
+        maxHeight: '100%',
+        objectFit: 'contain'
+      }}
+      onError={(e) => {
+        console.error("Failed to load processed image:", originalImage.processed_path);
+        // Try original image as fallback
+        e.target.src = getImageUrl(originalImage.original_path, originalImage.original_url);
+        
+        // If that fails too, show placeholder
+        e.target.onerror = () => {
+          console.error("Failed to load original image:", originalImage.original_path);
+          e.target.src = 'https://via.placeholder.com/300x300?text=Product+Image+Not+Found';
+          e.target.onerror = null; // Prevent infinite loop
+        };
+      }}
+    />
+  </Box>
+) : (
+  <Box 
+    sx={{ 
+      width: '100%',
+      height: 250,
+      display: 'flex',
+      justifyContent: 'center',
+      alignItems: 'center',
+      backgroundColor: '#f5f5f5',
+      borderRadius: 1
+    }}
+  >
+    <ImageIcon sx={{ fontSize: 72, color: '#9e9e9e' }} />
+  </Box>
+)}
               
               <Box sx={{ mt: 3 }}>
                 <Typography variant="body2" sx={{ mb: 1 }}>

@@ -23,13 +23,13 @@ const Subscription = ({ user, fetchUserData }) => {
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
-
+  
   // Payment form state
   const [cardNumber, setCardNumber] = useState('');
   const [cardName, setCardName] = useState('');
   const [expiry, setExpiry] = useState('');
   const [cvc, setCvc] = useState('');
-
+  
   useEffect(() => {
     const fetchPlans = async () => {
       try {
@@ -41,22 +41,22 @@ const Subscription = ({ user, fetchUserData }) => {
         setLoading(false);
       }
     };
-
+    
     fetchPlans();
   }, []);
-
+  
   const formatCurrency = (amount) => {
     if (amount === 0) return 'FREE';
-
+    
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD'
     }).format(amount);
   };
-
+  
   const handlePlanSelect = (planKey) => {
     setSelectedPlan(planKey);
-
+    
     // If free plan, subscribe directly without payment dialog
     if (planKey === 'free') {
       handleFreeSubscribe();
@@ -64,22 +64,22 @@ const Subscription = ({ user, fetchUserData }) => {
       setCheckoutOpen(true);
     }
   };
-
+  
   const handleFreeSubscribe = async () => {
     setPaymentLoading(true);
     setError(null);
-
+    
     try {
       await axios.post('/subscribe', {
         tier: 'free'
       });
-
+      
       setPaymentLoading(false);
       setSuccess('Successfully subscribed to free plan with 10 images!');
-
+      
       // Refresh user data
       await fetchUserData();
-
+      
     } catch (error) {
       setPaymentLoading(false);
       if (error.response) {
@@ -89,12 +89,12 @@ const Subscription = ({ user, fetchUserData }) => {
       }
     }
   };
-
+  
   const handleCheckoutClose = () => {
     setCheckoutOpen(false);
     setError(null);
   };
-
+  
   const handleCardNumberChange = (e) => {
     // Format card number with spaces
     const value = e.target.value.replace(/\s+/g, '').replace(/[^0-9]/g, '');
@@ -107,7 +107,7 @@ const Subscription = ({ user, fetchUserData }) => {
     }
     setCardNumber(formattedValue);
   };
-
+  
   const handleExpiryChange = (e) => {
     // Format expiry date as MM/YY
     const value = e.target.value.replace(/\D/g, '');
@@ -117,7 +117,7 @@ const Subscription = ({ user, fetchUserData }) => {
       setExpiry(`${value.slice(0, 2)}/${value.slice(2, 4)}`);
     }
   };
-
+  
   const handleCvcChange = (e) => {
     // Only allow 3-4 digits
     const value = e.target.value.replace(/\D/g, '');
@@ -125,31 +125,31 @@ const Subscription = ({ user, fetchUserData }) => {
       setCvc(value);
     }
   };
-
+  
   const handleSubscribe = async () => {
     // Validate form
     if (!cardNumber || !cardName || !expiry || !cvc) {
       setError('Please fill in all payment details');
       return;
     }
-
+    
     setPaymentLoading(true);
     setError(null);
-
+    
     try {
       // In a real app, this would integrate with Stripe or similar
       // For demo, we'll just simulate API call
       await axios.post('/subscribe', {
         tier: selectedPlan
       });
-
+      
       setPaymentLoading(false);
       setCheckoutOpen(false);
       setSuccess(`Successfully subscribed to ${selectedPlan} plan!`);
-
+      
       // Refresh user data
       await fetchUserData();
-
+      
     } catch (error) {
       setPaymentLoading(false);
       if (error.response) {
@@ -159,7 +159,7 @@ const Subscription = ({ user, fetchUserData }) => {
       }
     }
   };
-
+  
   const getFeatureIcon = (feature) => {
     if (feature.toLowerCase().includes('resolution')) {
       return <HighQualityIcon color="primary" />;
@@ -169,7 +169,7 @@ const Subscription = ({ user, fetchUserData }) => {
       return <CheckCircleIcon color="primary" />;
     }
   };
-
+  
   if (loading) {
     return (
       <Container maxWidth="md" sx={{ display: 'flex', justifyContent: 'center', my: 8 }}>
@@ -177,50 +177,44 @@ const Subscription = ({ user, fetchUserData }) => {
       </Container>
     );
   }
-
+  
   const currentPlan = user?.subscription?.tier;
-
+  
   return (
     <Container maxWidth="lg">
       <Box sx={{ my: 4 }}>
         <Typography variant="h4" gutterBottom>
           Subscription Plans
         </Typography>
-
+        
         {success && (
           <Alert severity="success" sx={{ mb: 3 }}>
             {success}
           </Alert>
         )}
-
+        
         {currentPlan && (
           <Paper elevation={3} sx={{ p: 3, mb: 4, backgroundColor: '#f8f9fa' }}>
             <Typography variant="h6" gutterBottom>
               Your Current Plan: <strong>{currentPlan.charAt(0).toUpperCase() + currentPlan.slice(1)}</strong>
             </Typography>
-
+            
             <Grid container spacing={2} alignItems="center">
               <Grid item xs={12} md={6}>
                 <Box>
-                  {/* Add null checks here to fix the error: */}
                   <Typography variant="body1">
-                    Images remaining: <strong>
-                      {plans[currentPlan] ?
-                        (plans[currentPlan].images_per_month - user.subscription.usage.images_generated)
-                        : 0
-                      }
-                    </strong> of {plans[currentPlan]?.images_per_month || 0}
+                    Images remaining: <strong>{plans[currentPlan].images_per_month - user.subscription.usage.images_generated}</strong> of {plans[currentPlan].images_per_month}
                   </Typography>
-
+                  
                   <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
                     Next reset date: {new Date(user.subscription.next_billing_date).toLocaleDateString()}
                   </Typography>
                 </Box>
               </Grid>
-
+              
               <Grid item xs={12} md={6} sx={{ display: 'flex', justifyContent: { xs: 'flex-start', md: 'flex-end' } }}>
-                <Button
-                  variant="outlined"
+                <Button 
+                  variant="outlined" 
                   color="primary"
                   onClick={() => setSuccess(null)}
                 >
@@ -230,13 +224,13 @@ const Subscription = ({ user, fetchUserData }) => {
             </Grid>
           </Paper>
         )}
-
+        
         <Grid container spacing={4} alignItems="stretch">
           {/* Free Plan Card */}
           <Grid item xs={12} md={3}>
-            <Card
+            <Card 
               elevation={3}
-              sx={{
+              sx={{ 
                 height: '100%',
                 display: 'flex',
                 flexDirection: 'column',
@@ -251,17 +245,17 @@ const Subscription = ({ user, fetchUserData }) => {
                     Free
                   </Typography>
                 </Box>
-
+                
                 <Typography variant="h4" color="primary" gutterBottom>
                   FREE
                 </Typography>
-
+                
                 <Typography variant="body1" sx={{ mb: 2 }}>
                   <strong>10</strong> visualizations per month
                 </Typography>
-
+                
                 <Divider sx={{ my: 2 }} />
-
+                
                 <List dense>
                   {plans.free && plans.free.features.map((feature, index) => (
                     <ListItem key={index} disableGutters>
@@ -273,11 +267,11 @@ const Subscription = ({ user, fetchUserData }) => {
                   ))}
                 </List>
               </CardContent>
-
+              
               <CardActions sx={{ p: 2, pt: 0 }}>
                 {currentPlan === 'free' ? (
-                  <Button
-                    variant="outlined"
+                  <Button 
+                    variant="outlined" 
                     color="primary"
                     fullWidth
                     disabled
@@ -285,8 +279,8 @@ const Subscription = ({ user, fetchUserData }) => {
                     Current Plan
                   </Button>
                 ) : (
-                  <Button
-                    variant="contained"
+                  <Button 
+                    variant="contained" 
                     color="primary"
                     fullWidth
                     onClick={() => handlePlanSelect('free')}
@@ -297,13 +291,13 @@ const Subscription = ({ user, fetchUserData }) => {
               </CardActions>
             </Card>
           </Grid>
-
+          
           {/* Other subscription tiers */}
           {Object.entries(plans).filter(([key]) => key !== 'free').map(([key, plan]) => (
             <Grid item xs={12} md={3} key={key}>
-              <Card
+              <Card 
                 elevation={key === 'business' ? 5 : 3}
-                sx={{
+                sx={{ 
                   height: '100%',
                   display: 'flex',
                   flexDirection: 'column',
@@ -314,8 +308,8 @@ const Subscription = ({ user, fetchUserData }) => {
                 }}
               >
                 {key === 'business' && (
-                  <Box
-                    sx={{
+                  <Box 
+                    sx={{ 
                       position: 'absolute',
                       top: 0,
                       right: 0,
@@ -329,28 +323,28 @@ const Subscription = ({ user, fetchUserData }) => {
                     POPULAR
                   </Box>
                 )}
-
+                
                 <CardContent sx={{ flexGrow: 1 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
                     {key === 'starter' && <ImageIcon fontSize="large" color="primary" sx={{ mr: 1 }} />}
                     {key === 'business' && <SpeedIcon fontSize="large" color="primary" sx={{ mr: 1 }} />}
                     {key === 'enterprise' && <StarIcon fontSize="large" color="primary" sx={{ mr: 1 }} />}
-
+                    
                     <Typography variant="h5" component="div">
                       {key.charAt(0).toUpperCase() + key.slice(1)}
                     </Typography>
                   </Box>
-
+                  
                   <Typography variant="h4" color="primary" gutterBottom>
                     {formatCurrency(plan.price)}<Typography variant="body1" component="span" color="text.secondary">/month</Typography>
                   </Typography>
-
+                  
                   <Typography variant="body1" sx={{ mb: 2 }}>
                     <strong>{plan.images_per_month}</strong> visualizations per month
                   </Typography>
-
+                  
                   <Divider sx={{ my: 2 }} />
-
+                  
                   <List dense>
                     {plan.features.map((feature, index) => (
                       <ListItem key={index} disableGutters>
@@ -362,11 +356,11 @@ const Subscription = ({ user, fetchUserData }) => {
                     ))}
                   </List>
                 </CardContent>
-
+                
                 <CardActions sx={{ p: 2, pt: 0 }}>
                   {currentPlan === key ? (
-                    <Button
-                      variant="outlined"
+                    <Button 
+                      variant="outlined" 
                       color="primary"
                       fullWidth
                       disabled
@@ -374,8 +368,8 @@ const Subscription = ({ user, fetchUserData }) => {
                       Current Plan
                     </Button>
                   ) : (
-                    <Button
-                      variant="contained"
+                    <Button 
+                      variant="contained" 
                       color={key === 'business' ? 'secondary' : 'primary'}
                       fullWidth
                       onClick={() => handlePlanSelect(key)}
@@ -388,12 +382,12 @@ const Subscription = ({ user, fetchUserData }) => {
             </Grid>
           ))}
         </Grid>
-
+        
         <Box sx={{ mt: 6 }}>
           <Typography variant="h5" gutterBottom>
             All Plans Include
           </Typography>
-
+          
           <Grid container spacing={3} sx={{ mt: 1 }}>
             <Grid item xs={12} sm={6} md={3}>
               <Box sx={{ display: 'flex', alignItems: 'center' }}>
@@ -401,21 +395,21 @@ const Subscription = ({ user, fetchUserData }) => {
                 <Typography variant="body1">AI-powered scene generation</Typography>
               </Box>
             </Grid>
-
+            
             <Grid item xs={12} sm={6} md={3}>
               <Box sx={{ display: 'flex', alignItems: 'center' }}>
                 <CheckCircleIcon color="primary" sx={{ mr: 2 }} />
                 <Typography variant="body1">Background removal</Typography>
               </Box>
             </Grid>
-
+            
             <Grid item xs={12} sm={6} md={3}>
               <Box sx={{ display: 'flex', alignItems: 'center' }}>
                 <CheckCircleIcon color="primary" sx={{ mr: 2 }} />
                 <Typography variant="body1">Secure image storage</Typography>
               </Box>
             </Grid>
-
+            
             <Grid item xs={12} sm={6} md={3}>
               <Box sx={{ display: 'flex', alignItems: 'center' }}>
                 <CheckCircleIcon color="primary" sx={{ mr: 2 }} />
@@ -425,10 +419,10 @@ const Subscription = ({ user, fetchUserData }) => {
           </Grid>
         </Box>
       </Box>
-
+      
       {/* Checkout Dialog (for paid plans) */}
-      <Dialog
-        open={checkoutOpen}
+      <Dialog 
+        open={checkoutOpen} 
         onClose={handleCheckoutClose}
         maxWidth="sm"
         fullWidth
@@ -436,7 +430,7 @@ const Subscription = ({ user, fetchUserData }) => {
         <DialogTitle>
           Complete Your Subscription
         </DialogTitle>
-
+        
         <DialogContent>
           {selectedPlan && (
             <>
@@ -448,19 +442,19 @@ const Subscription = ({ user, fetchUserData }) => {
                   {formatCurrency(plans[selectedPlan].price)} per month
                 </Typography>
               </Box>
-
+              
               <Divider sx={{ mb: 3 }} />
-
+              
               {error && (
                 <Alert severity="error" sx={{ mb: 3 }}>
                   {error}
                 </Alert>
               )}
-
+              
               <Typography variant="subtitle1" gutterBottom>
                 Payment Details
               </Typography>
-
+              
               <Grid container spacing={2}>
                 <Grid item xs={12}>
                   <TextField
@@ -473,7 +467,7 @@ const Subscription = ({ user, fetchUserData }) => {
                     inputProps={{ maxLength: 19 }}
                   />
                 </Grid>
-
+                
                 <Grid item xs={12}>
                   <TextField
                     label="Cardholder Name"
@@ -484,7 +478,7 @@ const Subscription = ({ user, fetchUserData }) => {
                     placeholder="John Smith"
                   />
                 </Grid>
-
+                
                 <Grid item xs={6}>
                   <TextField
                     label="Expiry Date"
@@ -496,7 +490,7 @@ const Subscription = ({ user, fetchUserData }) => {
                     inputProps={{ maxLength: 5 }}
                   />
                 </Grid>
-
+                
                 <Grid item xs={6}>
                   <TextField
                     label="CVC"
@@ -509,7 +503,7 @@ const Subscription = ({ user, fetchUserData }) => {
                   />
                 </Grid>
               </Grid>
-
+              
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 2 }}>
                 Your subscription will begin immediately and will be billed monthly.
                 You can cancel or change your plan at any time.
@@ -517,13 +511,13 @@ const Subscription = ({ user, fetchUserData }) => {
             </>
           )}
         </DialogContent>
-
+        
         <DialogActions>
           <Button onClick={handleCheckoutClose} disabled={paymentLoading}>
             Cancel
           </Button>
-          <Button
-            onClick={handleSubscribe}
+          <Button 
+            onClick={handleSubscribe} 
             color="primary"
             variant="contained"
             disabled={paymentLoading}
