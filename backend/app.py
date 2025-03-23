@@ -15,12 +15,12 @@ from flask_jwt_extended import JWTManager, create_access_token, jwt_required, ge
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from PIL import Image, ImageOps
-import PIL.Image  # Add this import
+import PIL.Image
 import requests
 from google import genai
 from google.genai import types
-
-
+from pymongo import MongoClient
+from bson.objectid import ObjectId
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -32,8 +32,30 @@ app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['PROCESSED_FOLDER'] = 'processed'
 app.config['GEMINI_API_KEY'] = os.environ.get('GEMINI_API_KEY')
 app.config['STRIPE_API_KEY'] = os.environ.get('STRIPE_API_KEY')
+app.config['MONGO_URI'] = os.environ.get('MONGO_URI', 'mongodb+srv://uttampipliya4:<db_password>@imagedb.yba6h.mongodb.net/?retryWrites=true&w=majority&appName=ImageDB')
 
+# Set Gemini API key
 genai.api_key = app.config['GEMINI_API_KEY']
+
+# Connect to MongoDB
+try:
+    # Replace <db_password> with the actual database password
+    mongo_uri = app.config['MONGO_URI'].replace('<db_password>', os.environ.get('DB_PASSWORD', ''))
+    client = MongoClient(mongo_uri)
+    db = client.image_visualization  # Database name
+    
+    # Collections
+    users_collection = db.users
+    images_collection = db.images
+    
+    # Create indexes for better query performance
+    users_collection.create_index('email', unique=True)
+    images_collection.create_index('owner')
+    
+    print("Connected to MongoDB successfully!")
+except Exception as e:
+    print(f"Failed to connect to MongoDB: {e}")
+    raise
 
 # Ensure directories exist
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -41,14 +63,6 @@ os.makedirs(app.config['PROCESSED_FOLDER'], exist_ok=True)
 
 # Initialize JWT
 jwt = JWTManager(app)
-
-# Initialize Google Gemini API client
-# genai.configure(api_key=app.config['GEMINI_API_KEY'])
-
-# Mock database (replace with a real database in production)
-users_db = {}
-images_db = {}
-subscriptions_db = {}
 
 # Subscription tiers
 SUBSCRIPTION_TIERS = {
@@ -85,6 +99,14 @@ SCENE_TEMPLATES = {
     'bathroom': 'A clean bathroom with white tiles'
 }
 
+# Helper function to convert MongoDB ObjectId to string
+def to_json_serializable(obj):
+    if isinstance(obj, ObjectId):
+        return str(obj)
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    return obj
+
 # Route to serve uploaded images
 @app.route('/uploads/<filename>')
 def serve_upload(filename):
@@ -109,29 +131,42 @@ def register():
     data = request.json
     email = data.get('email')
     password = data.get('password')
+    first_name = data.get('first_name', '')
+    last_name = data.get('last_name', '')
+    company_name = data.get('company_name', '')
     
     if not email or not password:
         return jsonify({'error': 'Email and password are required'}), 400
     
-    if email in users_db:
+    # Check if user exists
+    if users_collection.find_one({'email': email}):
         return jsonify({'error': 'User already exists'}), 400
     
     # Create user with free tier subscription automatically assigned
-    users_db[email] = {
+    new_user = {
+        'email': email,
         'password_hash': generate_password_hash(password),
-        'created_at': datetime.now().isoformat(),
+        'first_name': first_name,
+        'last_name': last_name,
+        'company_name': company_name,
+        'created_at': datetime.now(),
         'subscription': {
             'tier': 'free',
-            'started_at': datetime.now().isoformat(),
-            'next_billing_date': (datetime.now() + timedelta(days=30)).isoformat()
+            'started_at': datetime.now(),
+            'next_billing_date': datetime.now() + timedelta(days=30)
         },
         'usage': {
             'images_generated': 0,
-            'last_reset': datetime.now().isoformat()
+            'last_reset': datetime.now()
         }
     }
     
+    # Insert user into database
+    result = users_collection.insert_one(new_user)
+    
+    # Create access token
     access_token = create_access_token(identity=email)
+    
     return jsonify({
         'access_token': access_token,
         'message': 'Account created with free subscription (10 images)'
@@ -146,7 +181,9 @@ def login():
     if not email or not password:
         return jsonify({'error': 'Email and password are required'}), 400
     
-    user = users_db.get(email)
+    # Find user
+    user = users_collection.find_one({'email': email})
+    
     if not user or not check_password_hash(user['password_hash'], password):
         return jsonify({'error': 'Invalid credentials'}), 401
     
@@ -170,11 +207,20 @@ def subscribe():
     
     # In a real app, this would integrate with Stripe or another payment processor
     # For now, we'll simulate successful subscription
-    users_db[email]['subscription'] = {
+    subscription_update = {
         'tier': tier,
-        'started_at': datetime.now().isoformat(),
-        'next_billing_date': (datetime.now() + timedelta(days=30)).isoformat()
+        'started_at': datetime.now(),
+        'next_billing_date': datetime.now() + timedelta(days=30)
     }
+    
+    # Update user's subscription in MongoDB
+    result = users_collection.update_one(
+        {'email': email},
+        {'$set': {'subscription': subscription_update}}
+    )
+    
+    if result.modified_count == 0:
+        return jsonify({'error': 'Failed to update subscription'}), 500
     
     return jsonify({'message': f'Successfully subscribed to {tier} tier'}), 200
 
@@ -182,14 +228,33 @@ def subscribe():
 @jwt_required()
 def get_subscription():
     email = get_jwt_identity()
-    subscription = users_db[email].get('subscription')
+    
+    # Find user
+    user = users_collection.find_one({'email': email})
+    
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    
+    subscription = user.get('subscription')
     
     if not subscription:
         return jsonify({'subscription': None}), 200
     
-    subscription_info = subscription.copy()
+    # Convert MongoDB datetime objects to ISO format strings
+    subscription_info = {
+        'tier': subscription['tier'],
+        'started_at': subscription['started_at'].isoformat(),
+        'next_billing_date': subscription['next_billing_date'].isoformat()
+    }
+    
     subscription_info['tier_details'] = SUBSCRIPTION_TIERS[subscription['tier']]
-    subscription_info['usage'] = users_db[email]['usage']
+    
+    # Format usage info
+    usage = {
+        'images_generated': user['usage']['images_generated'],
+        'last_reset': user['usage']['last_reset'].isoformat()
+    }
+    subscription_info['usage'] = usage
     
     return jsonify({'subscription': subscription_info}), 200
 
@@ -199,14 +264,20 @@ def get_subscription():
 def upload_image():
     email = get_jwt_identity()
     
+    # Find user
+    user = users_collection.find_one({'email': email})
+    
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    
     # Check if user has an active subscription
-    if not users_db[email].get('subscription'):
+    if not user.get('subscription'):
         return jsonify({'error': 'Active subscription required'}), 403
     
     # Check if user has reached their image limit
-    tier = users_db[email]['subscription']['tier']
+    tier = user['subscription']['tier']
     limit = SUBSCRIPTION_TIERS[tier]['images_per_month']
-    if users_db[email]['usage']['images_generated'] >= limit:
+    if user['usage']['images_generated'] >= limit:
         return jsonify({'error': 'Monthly image limit reached'}), 403
     
     # Check if file is in request
@@ -227,15 +298,17 @@ def upload_image():
     try:
         processed_path = process_image(file_path)
         
-        # Create image record
-        image_id = str(uuid.uuid4())
-        images_db[image_id] = {
+        # Create image record in MongoDB
+        image_record = {
             'owner': email,
             'original_path': file_path,
             'processed_path': processed_path,
             'generated_images': [],
-            'created_at': datetime.now().isoformat()
+            'created_at': datetime.now()
         }
+        
+        result = images_collection.insert_one(image_record)
+        image_id = str(result.inserted_id)
         
         return jsonify({
             'image_id': image_id,
@@ -263,7 +336,16 @@ def generate_image():
     if not image_id or not scene:
         return jsonify({'error': 'Image ID and scene are required'}), 400
     
-    if image_id not in images_db or images_db[image_id]['owner'] != email:
+    try:
+        # Convert string ID to ObjectId for MongoDB
+        object_id = ObjectId(image_id)
+    except:
+        return jsonify({'error': 'Invalid image ID format'}), 400
+    
+    # Find image in MongoDB
+    image_data = images_collection.find_one({'_id': object_id})
+    
+    if not image_data or image_data['owner'] != email:
         return jsonify({'error': 'Image not found or access denied'}), 404
     
     if scene not in SCENE_TEMPLATES and not custom_prompt:
@@ -275,26 +357,39 @@ def generate_image():
     try:
         # Generate image using Gemini
         generated_path = generate_with_gemini(
-            images_db[image_id]['processed_path'],
+            image_data['processed_path'],
             scene_prompt
         )
         
-        # Update image record and user usage
+        # Create generated image record
         generated_id = str(uuid.uuid4())
-        images_db[image_id]['generated_images'].append({
+        generated_image = {
             'id': generated_id,
             'path': generated_path,
             'scene': scene,
             'prompt': scene_prompt,
-            'created_at': datetime.now().isoformat()
-        })
+            'created_at': datetime.now()
+        }
         
-        users_db[email]['usage']['images_generated'] += 1
+        # Update image record in MongoDB
+        result = images_collection.update_one(
+            {'_id': object_id},
+            {'$push': {'generated_images': generated_image}}
+        )
+        
+        # Increment user's images generated count
+        users_collection.update_one(
+            {'email': email},
+            {'$inc': {'usage.images_generated': 1}}
+        )
+        
+        # Get updated user info for remaining images
+        user = users_collection.find_one({'email': email})
         
         return jsonify({
             'generated_id': generated_id,
             'message': 'Image generated successfully',
-            'remaining_images': SUBSCRIPTION_TIERS[users_db[email]['subscription']['tier']]['images_per_month'] - users_db[email]['usage']['images_generated']
+            'remaining_images': SUBSCRIPTION_TIERS[user['subscription']['tier']]['images_per_month'] - user['usage']['images_generated']
         }), 200
     
     except Exception as e:
@@ -305,29 +400,34 @@ def generate_image():
 def get_images():
     email = get_jwt_identity()
     
-    # Collect all images owned by the user
+    # Collect all images owned by the user from MongoDB
     user_images = []
-    for image_id, image_data in images_db.items():
-        if image_data['owner'] == email:
-            # Add URL fields to make it easier for frontend
-            image_info = {
-                'id': image_id,
-                'created_at': image_data['created_at'],
-                'generated_images': []
-            }
-            
-            # Add URLs to generated images
-            for gen_img in image_data['generated_images']:
-                gen_img_copy = gen_img.copy()
-                gen_filename = os.path.basename(gen_img['path'])
-                gen_img_copy['url'] = f"/processed/{gen_filename}"
-                image_info['generated_images'].append(gen_img_copy)
+    cursor = images_collection.find({'owner': email})
+    
+    for image_data in cursor:
+        # Convert MongoDB document to Python dictionary
+        image_info = {
+            'id': str(image_data['_id']),
+            'created_at': image_data['created_at'].isoformat(),
+            'generated_images': []
+        }
+        
+        # Add URLs to generated images
+        for gen_img in image_data.get('generated_images', []):
+            gen_img_copy = gen_img.copy()
+            # Convert datetime to string
+            if isinstance(gen_img_copy.get('created_at'), datetime):
+                gen_img_copy['created_at'] = gen_img_copy['created_at'].isoformat()
                 
-                # Debug output
-                print(f"Gallery image - Generated image path: {gen_img['path']}")
-                print(f"Gallery image - Generated image URL: {gen_img_copy['url']}")
+            gen_filename = os.path.basename(gen_img['path'])
+            gen_img_copy['url'] = f"/processed/{gen_filename}"
+            image_info['generated_images'].append(gen_img_copy)
             
-            user_images.append(image_info)
+            # Debug output
+            print(f"Gallery image - Generated image path: {gen_img['path']}")
+            print(f"Gallery image - Generated image URL: {gen_img_copy['url']}")
+        
+        user_images.append(image_info)
     
     return jsonify({'images': user_images}), 200
 
@@ -336,45 +436,79 @@ def get_images():
 def get_image(image_id):
     email = get_jwt_identity()
     
-    if image_id not in images_db or images_db[image_id]['owner'] != email:
+    try:
+        # Convert string ID to ObjectId for MongoDB
+        object_id = ObjectId(image_id)
+    except:
+        return jsonify({'error': 'Invalid image ID format'}), 400
+    
+    # Find image in MongoDB
+    image_data = images_collection.find_one({'_id': object_id})
+    
+    if not image_data or image_data['owner'] != email:
         return jsonify({'error': 'Image not found or access denied'}), 404
     
-    # Get image data
-    image_data = images_db[image_id].copy()
+    # Convert MongoDB document to JSON-serializable dictionary
+    image_dict = {}
+    for key, value in image_data.items():
+        if key == '_id':
+            image_dict['id'] = str(value)
+        elif key == 'created_at':
+            image_dict[key] = value.isoformat()
+        elif key == 'generated_images':
+            # Process each generated image
+            image_dict[key] = []
+            for gen_img in value:
+                gen_img_copy = gen_img.copy()
+                # Convert datetime to string
+                if isinstance(gen_img_copy.get('created_at'), datetime):
+                    gen_img_copy['created_at'] = gen_img_copy['created_at'].isoformat()
+                image_dict[key].append(gen_img_copy)
+        else:
+            image_dict[key] = value
     
     # Add api-friendly paths
-    original_filename = os.path.basename(image_data['original_path'])
-    processed_filename = os.path.basename(image_data['processed_path'])
+    original_filename = os.path.basename(image_dict['original_path'])
+    processed_filename = os.path.basename(image_dict['processed_path'])
     
-    image_data['original_url'] = f"/uploads/{original_filename}"
-    image_data['processed_url'] = f"/processed/{processed_filename}"
+    image_dict['original_url'] = f"/uploads/{original_filename}"
+    image_dict['processed_url'] = f"/processed/{processed_filename}"
     
     # Debug output
-    print(f"Original image path: {image_data['original_path']}")
-    print(f"Original image URL: {image_data['original_url']}")
-    print(f"Processed image path: {image_data['processed_path']}")
-    print(f"Processed image URL: {image_data['processed_url']}")
+    print(f"Original image path: {image_dict['original_path']}")
+    print(f"Original image URL: {image_dict['original_url']}")
+    print(f"Processed image path: {image_dict['processed_path']}")
+    print(f"Processed image URL: {image_dict['processed_url']}")
     
     # Update generated images with urls
-    for gen_img in image_data['generated_images']:
+    for gen_img in image_dict['generated_images']:
         gen_filename = os.path.basename(gen_img['path'])
         gen_img['url'] = f"/processed/{gen_filename}"
         print(f"Generated image path: {gen_img['path']}")
         print(f"Generated image URL: {gen_img['url']}")
     
-    return jsonify({'image': image_data}), 200
+    return jsonify({'image': image_dict}), 200
 
 @app.route('/api/images/<image_id>/download/<generated_id>', methods=['GET'])
 @jwt_required()
 def download_image(image_id, generated_id):
     email = get_jwt_identity()
     
-    if image_id not in images_db or images_db[image_id]['owner'] != email:
+    try:
+        # Convert string ID to ObjectId for MongoDB
+        object_id = ObjectId(image_id)
+    except:
+        return jsonify({'error': 'Invalid image ID format'}), 400
+    
+    # Find image in MongoDB
+    image_data = images_collection.find_one({'_id': object_id})
+    
+    if not image_data or image_data['owner'] != email:
         return jsonify({'error': 'Image not found or access denied'}), 404
     
     # Find the generated image
     generated_image = None
-    for gen_img in images_db[image_id]['generated_images']:
+    for gen_img in image_data.get('generated_images', []):
         if gen_img['id'] == generated_id:
             generated_image = gen_img
             break
@@ -384,10 +518,94 @@ def download_image(image_id, generated_id):
     
     return send_file(generated_image['path'], as_attachment=True)
 
+@app.route('/api/images/<image_id>', methods=['DELETE'])
+@jwt_required()
+def delete_image(image_id):
+    email = get_jwt_identity()
+    
+    try:
+        # Convert string ID to ObjectId for MongoDB
+        object_id = ObjectId(image_id)
+    except:
+        return jsonify({'error': 'Invalid image ID format'}), 400
+    
+    # Find image in MongoDB
+    image_data = images_collection.find_one({'_id': object_id})
+    
+    if not image_data or image_data['owner'] != email:
+        return jsonify({'error': 'Image not found or access denied'}), 404
+    
+    # Delete physical files
+    try:
+        # Original image
+        if os.path.exists(image_data['original_path']):
+            os.remove(image_data['original_path'])
+            
+        # Processed image
+        if os.path.exists(image_data['processed_path']):
+            os.remove(image_data['processed_path'])
+            
+        # Generated images
+        for gen_img in image_data.get('generated_images', []):
+            if os.path.exists(gen_img['path']):
+                os.remove(gen_img['path'])
+    except Exception as e:
+        print(f"Error deleting files: {e}")
+    
+    # Delete from database
+    result = images_collection.delete_one({'_id': object_id})
+    
+    if result.deleted_count == 0:
+        return jsonify({'error': 'Failed to delete image'}), 500
+    
+    return jsonify({'message': 'Image deleted successfully'}), 200
+
+@app.route('/api/images/<image_id>/generated/<generated_id>', methods=['DELETE'])
+@jwt_required()
+def delete_generated_image(image_id, generated_id):
+    email = get_jwt_identity()
+    
+    try:
+        # Convert string ID to ObjectId for MongoDB
+        object_id = ObjectId(image_id)
+    except:
+        return jsonify({'error': 'Invalid image ID format'}), 400
+    
+    # Find image in MongoDB
+    image_data = images_collection.find_one({'_id': object_id})
+    
+    if not image_data or image_data['owner'] != email:
+        return jsonify({'error': 'Image not found or access denied'}), 404
+    
+    # Find the generated image
+    generated_image = None
+    for gen_img in image_data.get('generated_images', []):
+        if gen_img['id'] == generated_id:
+            generated_image = gen_img
+            break
+    
+    if not generated_image:
+        return jsonify({'error': 'Generated image not found'}), 404
+    
+    # Delete physical file
+    try:
+        if os.path.exists(generated_image['path']):
+            os.remove(generated_image['path'])
+    except Exception as e:
+        print(f"Error deleting generated image file: {e}")
+    
+    # Update MongoDB record
+    result = images_collection.update_one(
+        {'_id': object_id},
+        {'$pull': {'generated_images': {'id': generated_id}}}
+    )
+    
+    if result.modified_count == 0:
+        return jsonify({'error': 'Failed to delete generated image'}), 500
+    
+    return jsonify({'message': 'Generated image deleted successfully'}), 200
+
 # Image processing functions
-
-# Add these debug statements to your backend functions
-
 def process_image(image_path):
     """
     Process the uploaded image by removing background
