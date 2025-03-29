@@ -22,8 +22,14 @@ from google.genai import types
 from pymongo import MongoClient
 from bson.objectid import ObjectId
 
+from admin.routes import admin_bp
+
 # Initialize Flask app
 app = Flask(__name__)
+
+# After initializing app
+app.register_blueprint(admin_bp)
+
 CORS(app)
 
 # Configuration
@@ -33,6 +39,7 @@ app.config['PROCESSED_FOLDER'] = 'processed'
 app.config['GEMINI_API_KEY'] = os.environ.get('GEMINI_API_KEY')
 app.config['STRIPE_API_KEY'] = os.environ.get('STRIPE_API_KEY')
 app.config['MONGO_URI'] = os.environ.get('MONGO_URI', 'mongodb+srv://uttampipliya4:<db_password>@imagedb.yba6h.mongodb.net/?retryWrites=true&w=majority&appName=ImageDB')
+
 
 # Set Gemini API key
 genai.api_key = app.config['GEMINI_API_KEY']
@@ -65,28 +72,7 @@ os.makedirs(app.config['PROCESSED_FOLDER'], exist_ok=True)
 jwt = JWTManager(app)
 
 # Subscription tiers
-SUBSCRIPTION_TIERS = {
-    'free': {
-        'price': 0,
-        'images_per_month': 10,
-        'features': ['Basic scenes', 'Standard resolution', 'Community support']
-    },
-    'starter': {
-        'price': 49,
-        'images_per_month': 20,
-        'features': ['Basic scenes', 'Standard resolution', 'Email support']
-    },
-    'business': {
-        'price': 149,
-        'images_per_month': 100,
-        'features': ['Advanced scenes', 'High resolution', 'Priority support']
-    },
-    'enterprise': {
-        'price': 499,
-        'images_per_month': 500,
-        'features': ['Custom backgrounds', 'Priority processing', 'Dedicated support']
-    }
-}
+from sub_config import SUBSCRIPTION_TIERS
 
 
 # Scene templates

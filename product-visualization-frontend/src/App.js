@@ -13,7 +13,11 @@ import SceneSelection from './pages/SceneSelection';
 import ImageGallery from './pages/ImageGallery';
 import Subscription from './pages/Subscription';
 import ImageDetail from './pages/ImageDetail';
-
+import AdminLogin from './pages/admin/AdminLogin';
+import AdminDashboard from './pages/admin/AdminDashboard';
+import AdminUsers from './pages/admin/AdminUsers';
+import AdminUserDetail from './pages/admin/AdminUserDetail';
+import AdminLayout from './components/admin/AdminLayout';
 // Styles
 import './App.css';
 

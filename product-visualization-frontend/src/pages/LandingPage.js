@@ -372,8 +372,8 @@ const LandingPage = () => {
         </Grid>
       </Container>
 
-      // This is just the updated pricing section of the LandingPage.js component
-      // to highlight the free plan
+      {/* // This is just the updated pricing section of the LandingPage.js component */}
+      {/* // to highlight the free plan */}
 
       {/* Pricing Section */}
       <Box sx={{ backgroundColor: '#f8f9fa', py: 10 }}>
